@@ -46,3 +46,5 @@ celerybeat-schedule
 data
 cache/
 *.pyc
+dataset/_carpyncho_cache_/
+results/clf/cats.pkl

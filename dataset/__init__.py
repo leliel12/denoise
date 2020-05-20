@@ -3,10 +3,19 @@ import pathlib
 
 import joblib
 
+import numpy as np
+
+import diskcache as dcache
+import carpyncho
+
 from libs.container import Container
 
 
 PATH = pathlib.Path(os.path.abspath(os.path.dirname(__file__)))
+
+CACHE_DIR = PATH / "_carpyncho_cache_"
+
+CACHE_SIZE_LIMIT = int(1e10)  # (10TB)
 
 
 NO_FEATURES = [
@@ -37,11 +46,13 @@ FEATURES = [
     'n09_jh_color', 'n09_jk_color', 'n09_m2', 'n09_m4', 'ppmb']
 
 
-def _load(filename):
+def _load(filename, raw=False):
     path = PATH / filename
     print(f"Reading '{path}'")
     
     sample = joblib.load(path)
+    if raw:
+        return sample
     grouped = sample.groupby("tile")
     data = Container({
         k: grouped.get_group(k).copy() for k in grouped.groups.keys()})
@@ -58,4 +69,37 @@ def load_scaled():
 
 
 def load_scaler():
-    return _load("scaler_full.pkl.bz2")
+    return _load("scaler_full.pkl.bz2", raw=True)
+
+
+cache = dcache.Cache(directory=CACHE_DIR, size_limit=CACHE_SIZE_LIMIT)
+client = carpyncho.Carpyncho(cache=cache, parquet_engine="fastparquet")
+
+
+def load_catalogs(*tiles):
+    def gen_class(v):
+        if v == "":
+            return 0
+        elif v.startswith("RRLyr-"):
+            return 1
+        return -1
+    
+    cats = {}
+    for tile in tiles:
+        feats = client.get_catalog(tile, "features")
+        
+        feats["tile"] = tile
+        feats["cls"] = feats.vs_type.apply(gen_class)
+        
+        feats = feats[NO_FEATURES + FEATURES].copy()
+        feats[FEATURES] = feats[FEATURES].astype(np.float32)
+        feats = feats[
+            (feats.cls >= 0) &
+            (feats.Mean.between(12, 16.5))
+        ].copy()
+        
+        feats = feats[~np.isinf(feats.Period_fit.values)]
+        feats = feats[~feats.Gskew.isnull()]
+        
+        cats[tile] = feats
+    return Container(cats)

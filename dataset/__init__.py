@@ -3,7 +3,11 @@ import pathlib
 
 import joblib
 
+import pandas as pd
+
 import numpy as np
+
+from sklearn.preprocessing import StandardScaler
 
 import diskcache as dcache
 import carpyncho
@@ -46,37 +50,29 @@ FEATURES = [
     'n09_jh_color', 'n09_jk_color', 'n09_m2', 'n09_m4', 'ppmb']
 
 
-def _load(filename, raw=False):
-    path = PATH / filename
-    print(f"Reading '{path}'")
-    
-    sample = joblib.load(path)
-    if raw:
-        return sample
-    grouped = sample.groupby("tile")
-    data = Container({
-        k: grouped.get_group(k).copy() for k in grouped.groups.keys()})
-    del grouped, sample
-    return data
-    
-
-def load_raw():
-    return _load("full.pkl.bz2")
-  
-
-def load_scaled():
-    return _load("full_scaled.pkl.bz2")
-
-
-def load_scaler():
-    return _load("scaler_full.pkl.bz2", raw=True)
+TILES = ['b206',
+ 'b214',
+ 'b216',
+ 'b220',
+ 'b228',
+ 'b234',
+ 'b247',
+ 'b248',
+ 'b261',
+ 'b262',
+ 'b263',
+ 'b264',
+ 'b277',
+ 'b278',
+ 'b360',
+ 'b396']
 
 
 cache = dcache.Cache(directory=CACHE_DIR, size_limit=CACHE_SIZE_LIMIT)
 client = carpyncho.Carpyncho(cache=cache, parquet_engine="fastparquet")
 
 
-def load_catalogs(*tiles):
+def load_catalogs(*tiles, flt=None):
     def gen_class(v):
         if v == "":
             return 0
@@ -92,6 +88,9 @@ def load_catalogs(*tiles):
         feats["cls"] = feats.vs_type.apply(gen_class)
         
         feats = feats[NO_FEATURES + FEATURES].copy()
+        if flt is not None:
+            feats = feats[feats.id.isin(flt)]
+            
         feats[FEATURES] = feats[FEATURES].astype(np.float32)
         feats = feats[
             (feats.cls >= 0) &
@@ -102,4 +101,37 @@ def load_catalogs(*tiles):
         feats = feats[~feats.Gskew.isnull()]
         
         cats[tile] = feats
-    return Container(cats)
+    
+    cats = Container(cats)
+    
+    ## Scaling
+    scl = StandardScaler()
+    all_df = pd.concat(cats.values())
+    
+    all_df[FEATURES] = scl.fit_transform(all_df[FEATURES].values)
+    
+    # eliminamos lo que da nan o inf en lo normalizado
+    for x in all_df.columns:
+        if all_df[x].dtype == object:
+            continue
+        if np.isnan(all_df[x].values).sum():
+            all_df = all_df[~np.isnan(all_df[x].values)]
+        if np.isinf(all_df[x].values).sum():
+            all_df = all_df[~np.isinf(all_df[x].values)]
+    
+    # removemos de los catalogos lo que estuvo en inf en lo normalizado
+    for tname, tile in cats.items():
+        cats[tname] = tile[tile.id.isin(all_df.id)].copy()
+    
+    # split
+    scats = Container({
+        gn: gdf.copy() for gn, gdf in all_df.groupby("tile")})
+    
+    return cats, scats, scl   
+    
+    
+
+def load_tile_clf():
+    # read
+    flt = joblib.load(PATH / "sep_tile.pkl.bz2")
+    return load_catalogs(*TILES, flt=flt)

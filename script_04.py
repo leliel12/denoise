@@ -25,6 +25,7 @@ from sklearn import metrics
 from sklearn.model_selection import (
     KFold, StratifiedKFold, train_test_split)
 from sklearn.feature_selection import RFECV
+from sklearn.ensemble import RandomForestClassifier
 
 from sklearn.svm import SVC
 
@@ -40,6 +41,12 @@ def run_svm_linear():
     
     return _run(cache_path=cache_path, clf_class=SVC, **svcl_params)
     
+    
+def run_rf():
+    cache_path = "results/rfecv_rf_linear.pkl.bz2"    
+    rf_params = BEST_PARAMS["rf"].best_params_
+    
+    return _run(cache_path=cache_path, clf_class=RandomForestClassifier, **rf_params)
     
 
 def _run(cache_path, clf_class, **best_params):

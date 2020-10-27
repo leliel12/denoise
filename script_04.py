@@ -53,7 +53,11 @@ def _run(cache_path, clf_class, **best_params):
     
     if os.path.exists(cache_path):
         print("Cached")
-        return joblib.load(cache_path)    
+        res = joblib.load(cache_path)
+    else:
+        res = {}
+        
+    change = False
 
     cpu = joblib.cpu_count()
 
@@ -62,13 +66,19 @@ def _run(cache_path, clf_class, **best_params):
     combs = list(it.combinations(names, 2))
     print(combs)
 
-    _, sdata, _ = dataset.load_tile_clf()
+    data = dataset.load_tile_clf()
 
-    res = {}
+    
     for t0, t1 in combs:
-        print(dt.datetime.now())
+        if (t0, t1) in res:
+            print("!!! Skip", t0, t1)
+            continue
+            
+        print(dt.datetime.now(), t0, t1)
 
-        df = pd.concat([sdata[t0], sdata[t1]])
+        df = pd.concat([data[t0], data[t1]])
+        
+        unscaled, df,  scl = dataset.scale(df)
 
         cls = {name: idx for idx, name in enumerate(df.tile.unique())}
         print(cls)
@@ -84,11 +94,12 @@ def _run(cache_path, clf_class, **best_params):
         sel.fit(X, y)
 
         print("storing")
-        res[(t0, t1)] = sel
-
+        res[(t0, t1)] = {"selector": sel, "unscaled": unscaled, "scaled": df, "scl": scl}
+        joblib.dump(res, cache_path, compress=3)
+        
         print("-----------------------------")
 
-    joblib.dump(res, cache_path, compress=3)    
+    
     return res
 
 

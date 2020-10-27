@@ -105,8 +105,20 @@ def load_catalogs(*tiles, flt=None):
     cats = Container(cats)
     
     ## Scaling
+    return cats
+    
+    
+
+def load_tile_clf():
+    # read
+    flt = joblib.load(PATH / "sep_tile.pkl.bz2")
+    return load_catalogs(*TILES, flt=flt)
+
+
+def scale(df):
+
     scl = StandardScaler()
-    all_df = pd.concat(cats.values())
+    all_df = df.copy()
     
     all_df[FEATURES] = scl.fit_transform(all_df[FEATURES].values)
     
@@ -119,19 +131,6 @@ def load_catalogs(*tiles, flt=None):
         if np.isinf(all_df[x].values).sum():
             all_df = all_df[~np.isinf(all_df[x].values)]
     
-    # removemos de los catalogos lo que estuvo en inf en lo normalizado
-    for tname, tile in cats.items():
-        cats[tname] = tile[tile.id.isin(all_df.id)].copy()
+    df = df[df.id.isin(all_df.id.values)]
     
-    # split
-    scats = Container({
-        gn: gdf.copy() for gn, gdf in all_df.groupby("tile")})
-    
-    return cats, scats, scl   
-    
-    
-
-def load_tile_clf():
-    # read
-    flt = joblib.load(PATH / "sep_tile.pkl.bz2")
-    return load_catalogs(*TILES, flt=flt)
+    return df, all_df, scl
